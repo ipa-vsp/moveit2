@@ -44,6 +44,14 @@ namespace moveit
 {
 namespace core
 {
+/** Struct defining linear and rotational precision */
+struct CartesianPrecision
+{
+  double translational = 0.001;  //< max deviation in translation (meters)
+  double rotational = 0.01;      //< max deviation in rotation (radians)
+  double max_resolution = 1e-5;  //< max resolution for waypoints (fraction of total path)
+};
+
 /** \brief Struct for containing jump_threshold.
 
     For the purposes of maintaining API, we support both \e jump_threshold_factor which provides a scaling factor for
@@ -144,6 +152,75 @@ public:
 
      The Cartesian path to be followed is specified as a \e translation vector to be followed by the robot \e link.
      This vector is assumed to be specified either in the global reference frame or in the local
+     reference frame of the link.
+     The resulting joint values are stored in the vector \e traj, one by one. The interpolation distance in
+     Cartesian space between consecutive points on the resulting path is specified in the \e MaxEEFStep struct which
+     provides two fields: translation and rotation. If a \e validCallback is specified, this is passed to the internal
+     call to setFromIK(). In case of IK failure, the computation of the path stops and the value returned corresponds to
+     the distance that was achieved and for which corresponding states were added to the path.
+
+     The struct CartesianPrecision specifies the precision to which the path should follow the Cartesian straight line.
+     If the deviation at the mid point of two consecutive waypoints is larger than the specified precision, another waypoint
+     will be inserted at that mid point. The precision is specified separately for translation and rotation.
+     The maximal resolution to consider (as fraction of the total path length) is specified by max_resolution.
+  */
+  static Distance computeCartesianPath(
+    const RobotState* start_state, const JointModelGroup* group, std::vector<std::shared_ptr<RobotState>>& traj,
+    const LinkModel* link, const Eigen::Vector3d& translation, bool global_reference_frame,
+    const MaxEEFStep& max_step, const CartesianPrecision& precision,
+    const GroupStateValidityCallbackFn& validCallback = GroupStateValidityCallbackFn(),
+    const kinematics::KinematicsQueryOptions& options = kinematics::KinematicsQueryOptions(),
+    const kinematics::KinematicsBase::IKCostFn& cost_function = kinematics::KinematicsBase::IKCostFn());
+
+  /** \brief Compute the sequence of joint values that correspond to a straight Cartesian path, for a particular link.
+
+  In contrast to the previous function, the translation vector is specified as a (unit) direction vector and
+  a distance. */
+  static Distance computeCartesianPath(
+    const RobotState* start_state, const JointModelGroup* group, std::vector<std::shared_ptr<RobotState>>& traj,
+    const LinkModel* link, const Eigen::Vector3d& direction, bool global_reference_frame, double distance,
+    const MaxEEFStep& max_step, const CartesianPrecision& precision,
+    const GroupStateValidityCallbackFn& validCallback = GroupStateValidityCallbackFn(),
+    const kinematics::KinematicsQueryOptions& options = kinematics::KinematicsQueryOptions(),
+    const kinematics::KinematicsBase::IKCostFn& cost_function = kinematics::KinematicsBase::IKCostFn())
+  {
+  return computeCartesianPath(start_state, group, traj, link, distance * direction, global_reference_frame, max_step,
+                              precision, validCallback, options, cost_function);
+  }
+
+  /** \brief Compute the sequence of joint values that correspond to a straight Cartesian path, for a particular frame.
+
+  In contrast to the previous function, the Cartesian path is specified as a target frame to be reached (\e target)
+  for a virtual frame attached to the robot \e link with the given \e link_offset.
+  The target frame is assumed to be specified either w.r.t. to the global reference frame or the virtual link frame.
+  This function returns the fraction (0..1) of path that was achieved. All other comments from the previous function apply. */
+  static Percentage computeCartesianPath(
+    const RobotState* start_state, const JointModelGroup* group, std::vector<RobotStatePtr>& traj,
+    const LinkModel* link, const Eigen::Isometry3d& target, bool global_reference_frame, const MaxEEFStep& max_step,
+    const CartesianPrecision& precision, const GroupStateValidityCallbackFn& validCallback,
+    const kinematics::KinematicsQueryOptions& options,
+    const kinematics::KinematicsBase::IKCostFn& cost_function = kinematics::KinematicsBase::IKCostFn(),
+    const Eigen::Isometry3d& link_offset = Eigen::Isometry3d::Identity());
+
+  /** \brief Compute the sequence of joint values that perform a general Cartesian path.
+
+  In contrast to the previous functions, the Cartesian path is specified as a set of \e waypoints to be sequentially
+  reached by the virtual frame attached to the robot \e link. The waypoints are transforms given either w.r.t. the global
+  reference frame or the virtual frame at the immediately preceding waypoint. The virtual frame needs
+  to move in a straight line between two consecutive waypoints. All other comments apply. */
+  static Percentage computeCartesianPath(
+    const RobotState* start_state, const JointModelGroup* group, std::vector<std::shared_ptr<RobotState>>& traj,
+    const LinkModel* link, const EigenSTL::vector_Isometry3d& waypoints, bool global_reference_frame,
+    const MaxEEFStep& max_step, const CartesianPrecision& precision,
+    const GroupStateValidityCallbackFn& validCallback = GroupStateValidityCallbackFn(),
+    const kinematics::KinematicsQueryOptions& options = kinematics::KinematicsQueryOptions(),
+    const kinematics::KinematicsBase::IKCostFn& cost_function = kinematics::KinematicsBase::IKCostFn(),
+    const Eigen::Isometry3d& link_offset = Eigen::Isometry3d::Identity());
+
+  /** \brief Compute the sequence of joint values that correspond to a straight Cartesian path for a particular link.
+
+     The Cartesian path to be followed is specified as a \e translation vector to be followed by the robot \e link.
+     This vector is assumed to be specified either in the global reference frame or in the local
      reference frame of the link (\e global_reference_frame is false).
      The resulting joint values are stored in the vector \e traj, one by one. The maximum distance in
      Cartesian space between consecutive points on the resulting path is specified in the \e MaxEEFStep struct which
@@ -170,7 +247,7 @@ public:
      the returned path is truncated up to just before the jump.
 
      Kinematics solvers may use cost functions to prioritize certain solutions, which may be specified with \e cost_function. */
-  static Distance computeCartesianPath(
+  [[deprecated("Replace JumpThreshold with CartesianPrecision")]] static Distance computeCartesianPath(
       RobotState* start_state, const JointModelGroup* group, std::vector<std::shared_ptr<RobotState>>& traj,
       const LinkModel* link, const Eigen::Vector3d& translation, bool global_reference_frame,
       const MaxEEFStep& max_step, const JumpThreshold& jump_threshold,
@@ -182,7 +259,7 @@ public:
 
      In contrast to the previous function, the translation vector is specified as a (unit) direction vector and
      a distance. */
-  static Distance computeCartesianPath(
+  [[deprecated("Replace JumpThreshold with CartesianPrecision")]] static Distance computeCartesianPath(
       RobotState* start_state, const JointModelGroup* group, std::vector<std::shared_ptr<RobotState>>& traj,
       const LinkModel* link, const Eigen::Vector3d& direction, bool global_reference_frame, double distance,
       const MaxEEFStep& max_step, const JumpThreshold& jump_threshold,
@@ -190,8 +267,11 @@ public:
       const kinematics::KinematicsQueryOptions& options = kinematics::KinematicsQueryOptions(),
       const kinematics::KinematicsBase::IKCostFn& cost_function = kinematics::KinematicsBase::IKCostFn())
   {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     return computeCartesianPath(start_state, group, traj, link, distance * direction, global_reference_frame, max_step,
                                 jump_threshold, validCallback, options, cost_function);
+#pragma GCC diagnostic pop
   }
 
   /** \brief Compute the sequence of joint values that correspond to a straight Cartesian path, for a particular frame.
@@ -201,7 +281,7 @@ public:
      The target frame is assumed to be specified either w.r.t. to the global reference frame or the virtual link frame
      (\e global_reference_frame is false). This function returns the percentage (0..1) of the path that was achieved.
      All other comments from the previous function apply. */
-  static Percentage computeCartesianPath(
+  [[deprecated("Replace JumpThreshold with CartesianPrecision")]] static Percentage computeCartesianPath(
       RobotState* start_state, const JointModelGroup* group, std::vector<std::shared_ptr<RobotState>>& traj,
       const LinkModel* link, const Eigen::Isometry3d& target, bool global_reference_frame, const MaxEEFStep& max_step,
       const JumpThreshold& jump_threshold,
@@ -216,7 +296,7 @@ public:
      reached by the virtual frame attached to the robot \e link. The waypoints are transforms given either w.r.t. the global
      reference frame or the virtual frame at the immediately preceding waypoint. The virtual frame needs
      to move in a straight line between two consecutive waypoints. All other comments apply. */
-  static Percentage computeCartesianPath(
+  [[deprecated("Replace JumpThreshold with CartesianPrecision")]] static Percentage computeCartesianPath(
       RobotState* start_state, const JointModelGroup* group, std::vector<std::shared_ptr<RobotState>>& traj,
       const LinkModel* link, const EigenSTL::vector_Isometry3d& waypoints, bool global_reference_frame,
       const MaxEEFStep& max_step, const JumpThreshold& jump_threshold,
@@ -279,6 +359,16 @@ public:
                                                 std::vector<std::shared_ptr<RobotState>>& traj,
                                                 double revolute_jump_threshold, double prismatic_jump_threshold);
 };
+
+/** \brief Checks if a joint-space path has a jump larger than the given threshold.
+
+   This function computes the distance between every pair of adjacent waypoints (for the given group) and checks if that
+   distance is larger than the threshold defined by `jump_threshold`. If so, it is considered that the path has a
+   jump, and the path index where the jump happens is returned as output.
+   Otherwise the function returns a nullopt. */
+std::optional<int> hasJointSpaceJump(const std::vector<moveit::core::RobotStatePtr>& waypoints,
+    const moveit::core::JointModelGroup& group,
+    const moveit::core::JumpThreshold& jump_threshold);
 
 }  // end of namespace core
 }  // end of namespace moveit
